@@ -1,0 +1,78 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cloud-image-deployment
+  namespace: cloudai-2
+  labels:
+    app: cloud-image-pod
+spec:   
+  selector:
+    matchLabels:
+      app: cloud-image-pod
+  replicas: 2   # 选项定义需要的副本个数，此处可以设置很多属性，例如受此Deployment影响的Pod的选择器等
+  template:   # template其实就是对Pod对象的定义
+    metadata:
+      labels:
+        app: cloud-image-pod
+    spec: 
+      affinity:
+        podAntiAffinity:   # 尽量将pod分布在不同的主机
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 1
+            podAffinityTerm:
+              topologyKey: "kubernetes.io/hostname"
+              labelSelector:
+                matchLabels:
+                  app: cloud-image-pod
+      imagePullSecrets:
+      - name: hubsecret
+
+      volumes:
+      - name: tz-config
+        hostPath:
+          path: /usr/share/zoneinfo/Asia/Shanghai
+      - name: file-path  
+        persistentVolumeClaim:
+           claimName: cloudai-file-pvc
+      nodeName: "cluster-aicloud-master-1"
+      containers:
+      - name: cloud-image-container     # 容器名称
+        image: luanpeng/lp:image-go-1.0.0
+#        command: ['sleep','30000']
+        workingDir: /go/src/image_go
+#        imagePullPolicy: Always
+        ports:     # 容器将会监听的指定端口号
+        - containerPort: 80
+        env:
+          - name: ENABLE_PULL_METRICS
+            value: "true"
+          - name: PUSH_GATEWAY_HOST
+            value: "http://cloud-pushgateway-service.monitoring.svc:8000/metrics"
+        resources:       
+          limits:
+            cpu: 5000m
+            memory: 1500Mi
+          requests:
+            cpu: 10m
+            memory: 100Mi
+        readinessProbe:
+          httpGet:
+            path: "/"
+            port: 8080
+          initialDelaySeconds: 15
+          timeoutSeconds: 5
+          periodSeconds: 10
+
+        livenessProbe:
+          httpGet:
+            path: "/"
+            port: 8080
+          initialDelaySeconds: 100
+          timeoutSeconds: 5
+          periodSeconds: 300
+
+        volumeMounts:
+        - name: tz-config
+          mountPath: /etc/localtime
+        - name: file-path
+          mountPath: /file
